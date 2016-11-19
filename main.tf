@@ -1,4 +1,10 @@
 #creation of the Virtual Private cloud
+provider "aws" {
+  access_key = "${var.aws_access_key}"
+  secret_key = "${var.aws_secret_key}"
+  region = "us-east-1"
+}
+
 resource "aws_vpc" "rean-vpc" {
     cidr_block = "${var.vpc_cidr}"
     enable_dns_hostnames = true
@@ -28,7 +34,7 @@ resource "aws_subnet" "private_subnet" {
 }
 
 #Create Internet Gateway
-resource "aws_internet_gateway" {
+resource "aws_internet_gateway" "inet_gway" {
   vpc_id = "${aws_vpc.rean-vpc.id}"
   tags {
     Name = "Internet Gateway"
@@ -45,6 +51,8 @@ resource "aws_nat_gateway" "gw" {
   allocation_id = "${aws_eip.eip.id}"
   subnet_id = "${aws_subnet.private_subnet.id}"
 }
+
+#ELB security Group
 resource "aws_security_group" "elb_sg" {
   name = ""
   description = ""
@@ -63,6 +71,7 @@ resource "aws_security_group" "elb_sg" {
   }
 }
 
+#EC2 Security Group
 resource "aws_security_group" "ec2_sg" {
   name = ""
   description = ""
