@@ -47,3 +47,8 @@ variable "volume_size" {
   description = ""
   default = ""
 }
+
+variable "efs_token" {
+  description = ""
+  default =  ""
+}

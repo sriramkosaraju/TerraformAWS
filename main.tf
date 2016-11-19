@@ -38,20 +38,12 @@ resource "aws_internet_gateway" {
 #creation of EIP for NAT GAteway
 resource "aws_eip" "eip" {
   vpc = true
-  tags {
-    Name = "Elastic IP"
-    Owner = "Rean Cloud"
-  }
 }
 
 #Creation of NAT Gateway
 resource "aws_nat_gateway" "gw" {
   allocation_id = "${aws_eip.eip.id}"
   subnet_id = "${aws_subnet.private_subnet.id}"
-  tags {
-    Name = "Nat Gateway"
-    Owner = "Rean Cloud"
-  }
 }
 resource "aws_security_group" "elb_sg" {
   name = ""
@@ -97,9 +89,17 @@ resource "aws_launch_configuration" "launch_config" {
   iam_instance_profile = "${var.iam_profile}"
   key_name = "${var.keyname}"
   security_groups = "${aws_security_group.ec2_sg.id}"
+  user_data = "${template_file.userdata.rendered}"
   root_block_device {
     volume_size = "${var.volume_size}"
     delete_on_termination = true
+  }
+  provisioner "remote-exec" {
+    inline = [
+      "sudo mkdir -p /mnt/efs",
+      "sudo mount -t nfs4 -o nfsvers=4.1 ${aws_efs_mount_target.efs_mount.dns_name}:/ /mnt/efs",
+      "sudo su -c \"echo '${aws_efs_mount_target.efs_mount.dns_name}:/ /mnt/efs nfs defaults,vers=4.1 0 0' >> /etc/fstab\"" #create fstab entry to ensure automount on reboots
+    ]
   }
   lifecycle {
     create_before_destroy = true
@@ -149,6 +149,20 @@ resource "aws_autoscaling_group" "asg" {
   }
 }
 
+resource "aws_efs_file_system" "efs" {
+  creation_token = "${var.efs_token}"
+  tags {
+    Name = "${var.efs_token}"
+  }
+}
 
+resource "aws_efs_mount_target" "efs_mount" {
+  file_system_id = "${aws_efs_file_system.efs.id}"
+  subnet_id = "${var.private_subnet_cidr}"
+  security_groups = ["${aws_security_group.ec2_sg.id}]"]
+}
 
+resource "template_file" "userdata" {
+  template = "${file("user_data/bootstrap.sh")}"
+}
 
