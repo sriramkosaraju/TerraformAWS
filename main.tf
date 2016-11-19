@@ -1,136 +1,154 @@
-resource "aws_vpc" "default" {
+#creation of the Virtual Private cloud
+resource "aws_vpc" "rean-vpc" {
     cidr_block = "${var.vpc_cidr}"
     enable_dns_hostnames = true
     tags {
         Name = "terraform-aws-vpc"
     }
 }
-resource "aws_internet_gateway" "default" {
-    vpc_id = "${aws_vpc.default.id}"
+
+#creation of the subnets for VPC
+resource "aws_subnet" "public_subnet" {
+  vpc_id = "${aws_vpc.rean-vpc.id}"
+  cidr_block = "${var.public_subnet_cidr}"
+  tags {
+    Name = "Public_Subnet"
+    Owner = "Rean Cloud"
+  }
 }
-/*
-  NAT Instance
-*/
-resource "aws_security_group" "nat" {
-    name = "vpc_nat"
-    description = "Allow traffic to pass from the private subnet to the internet"
-    ingress {
-        from_port = 80
-        to_port = 80
-        protocol = "tcp"
-        cidr_blocks = ["${var.private_subnet_cidr}"]
-    }
-    ingress {
-        from_port = 443
-        to_port = 443
-        protocol = "tcp"
-        cidr_blocks = ["${var.private_subnet_cidr}"]
-    }
-    ingress {
-        from_port = 22
-        to_port = 22
-        protocol = "tcp"
-        cidr_blocks = ["0.0.0.0/0"]
-    }
-    ingress {
-        from_port = -1
-        to_port = -1
-        protocol = "icmp"
-        cidr_blocks = ["0.0.0.0/0"]
-    }
-    egress {
-        from_port = 80
-        to_port = 80
-        protocol = "tcp"
-        cidr_blocks = ["0.0.0.0/0"]
-    }
-    egress {
-        from_port = 443
-        to_port = 443
-        protocol = "tcp"
-        cidr_blocks = ["0.0.0.0/0"]
-    }
-    egress {
-        from_port = 22
-        to_port = 22
-        protocol = "tcp"
-        cidr_blocks = ["${var.vpc_cidr}"]
-    }
-    egress {
-        from_port = -1
-        to_port = -1
-        protocol = "icmp"
-        cidr_blocks = ["0.0.0.0/0"]
-    }
-    vpc_id = "${aws_vpc.default.id}"
-    tags {
-        Name = "NATSG"
-    }
+
+#creation of private subnets
+resource "aws_subnet" "private_subnet" {
+  vpc_id = "${aws_vpc.rean-vpc.id}"
+  cidr_block = "${var.private_subnet_cidr}"
+  tags {
+    Name = "private_subnet"
+    Owner = "Rean Cloud"
+  }
 }
-resource "aws_instance" "nat" {
-    ami = "ami-30913f47" # this is a special ami preconfigured to do NAT
-    availability_zone = "eu-west-1a"
-    instance_type = "m1.small"
-    key_name = "${var.aws_key_name}"
-    vpc_security_group_ids = ["${aws_security_group.nat.id}"]
-    subnet_id = "${aws_subnet.eu-west-1a-public.id}"
-    associate_public_ip_address = true
-    source_dest_check = false
-    tags {
-        Name = "VPC NAT"
-    }
+
+#Create Internet Gateway
+resource "aws_internet_gateway" {
+  vpc_id = "${aws_vpc.rean-vpc.id}"
+  tags {
+    Name = "Internet Gateway"
+    Owner = "Rean Cloud"
+  }
 }
-resource "aws_eip" "nat" {
-    instance = "${aws_instance.nat.id}"
-    vpc = true
+#creation of EIP for NAT GAteway
+resource "aws_eip" "eip" {
+  vpc = true
+  tags {
+    Name = "Elastic IP"
+    Owner = "Rean Cloud"
+  }
 }
-/*
-  Public Subnet
-*/
-resource "aws_subnet" "eu-west-1a-public" {
-    vpc_id = "${aws_vpc.default.id}"
-    cidr_block = "${var.public_subnet_cidr}"
-    availability_zone = "eu-west-1a"
-    tags {
-        Name = "Public Subnet"
-    }
+
+#Creation of NAT Gateway
+resource "aws_nat_gateway" "gw" {
+  allocation_id = "${aws_eip.eip.id}"
+  subnet_id = "${aws_subnet.private_subnet.id}"
+  tags {
+    Name = "Nat Gateway"
+    Owner = "Rean Cloud"
+  }
 }
-resource "aws_route_table" "eu-west-1a-public" {
-    vpc_id = "${aws_vpc.default.id}"
-    route {
-        cidr_block = "0.0.0.0/0"
-        gateway_id = "${aws_internet_gateway.default.id}"
-    }
-    tags {
-        Name = "Public Subnet"
-    }
+resource "aws_security_group" "elb_sg" {
+  name = ""
+  description = ""
+  vpc_id = "${aws_vpc.rean-vpc.id}"
+  ingress {
+    from_port = 80
+    to_port = 80
+    protocol = "tcp"
+    cidr_blocks = "0.0.0.0/0"
+  }
+  egress {
+    from_port = 0
+    to_port = 0
+    protocol = "-1"
+    cidr_blocks = "0.0.0.0/0"
+  }
 }
-resource "aws_route_table_association" "eu-west-1a-public" {
-    subnet_id = "${aws_subnet.eu-west-1a-public.id}"
-    route_table_id = "${aws_route_table.eu-west-1a-public.id}"
+
+resource "aws_security_group" "ec2_sg" {
+  name = ""
+  description = ""
+  vpc_id = "${aws_vpc.rean-vpc.id}"
+  ingress {
+    from_port = 80
+    to_port = 80
+    protocol = "tcp"
+    cidr_blocks = "${aws_security_group.elb_sg.id}"
+  }
+  egress {
+    from_port = 0
+    to_port = 0
+    protocol = "-1"
+    cidr_blocks = "0.0.0.0/0"
+  }
 }
-/*
-  Private Subnet
-*/
-resource "aws_subnet" "eu-west-1a-private" {
-    vpc_id = "${aws_vpc.default.id}"
-    cidr_block = "${var.private_subnet_cidr}"
-    availability_zone = "eu-west-1a"
-    tags {
-        Name = "Private Subnet"
-    }
+
+#create launch configuration
+resource "aws_launch_configuration" "launch_config" {
+  name_prefix = "terraform-lc-example-"
+  image_id = "${var.amis}"
+  instance_type = "${var.instance_type}"
+  iam_instance_profile = "${var.iam_profile}"
+  key_name = "${var.keyname}"
+  security_groups = "${aws_security_group.ec2_sg.id}"
+  root_block_device {
+    volume_size = "${var.volume_size}"
+    delete_on_termination = true
+  }
+  lifecycle {
+    create_before_destroy = true
+  }
 }
-resource "aws_route_table" "eu-west-1a-private" {
-    vpc_id = "${aws_vpc.default.id}"
-    route {
-        cidr_block = "0.0.0.0/0"
-        instance_id = "${aws_instance.nat.id}"
-    }
-    tags {
-        Name = "Private Subnet"
-    }
+
+#creating the ELB
+resource "aws_elb" "elb" {
+  name = ""
+  availability_zones = ["us-east-1"]
+  subnets = ["${var.public_subnet_cidr}"]
+  listener {
+    instance_port = 80
+    instance_protocol = "http"
+    lb_port = 80
+    lb_protocol = "http"
+  }
+  health_check {
+    healthy_threshold = 2
+    unhealthy_threshold = 5
+    timeout = 3
+    target = "HTTP:80/"
+    interval = 60
+  }
+
 }
-resource "aws_route_table_association" "eu-west-1a-private" {
-    subnet_id = "${aws_subnet.eu-west-1a-private.id}"
-    route_table_id = "${aws_route_table.eu-west-1a-private.id}"
+
+resource "aws_autoscaling_group" "asg" {
+  name = ""
+  vpc_zone_identifier = ["${aws_subnet.public_subnet.id}"]
+  availability_zones = ["us-east-1"]
+  name = "Auto Scaling Group"
+  launch_configuration = "${aws_launch_configuration.launch_config.name}"
+  health_check_type = "ELB"
+  min_size = 1
+  max_size = 1
+  desired_capacity = 1
+  load_balancers = "${aws_elb.elb.id}"
+  force_delete = true
+  lifecycle {
+    create_before_destroy = true
+  }
+  tag {
+    key = ""
+    value = ""
+    propagate_at_launch = "true"
+  }
 }
+
+
+
+
