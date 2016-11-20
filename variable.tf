@@ -1,5 +1,9 @@
-variable "aws_access_key" {}
-variable "aws_secret_key" {}
+variable "aws_access_key" {
+  default = ""
+}
+variable "aws_secret_key" {
+  default = ""
+}
 
 variable "vpc_cidr" {
     description = "CIDR for the whole VPC"
@@ -23,7 +27,7 @@ variable "aws_region" {
 
 variable "amis" {
     description = "AMIs by region"
-    default = "ami-f1810f86"
+    default = "ami-b73b63a0"
 }
 
 variable "instance_type" {
@@ -32,21 +36,21 @@ variable "instance_type" {
 }
 
 variable "iam_profile" {
-  description = ""
-  default = ""
+  description = "iam profile"
+  default = "wordpressrole"
 }
 
 variable "keyname" {
-  description = ""
-  default = ""
+  description = "pem file to acces instance"
+  default = "worpress"
 }
 
 variable "volume_size" {
-  description = ""
-  default = ""
+  description = "root volume size"
+  default = 100
 }
 
 variable "efs_token" {
-  description = ""
-  default =  ""
+  description = "name of the ebs"
+  default =  "wordpress"
 }

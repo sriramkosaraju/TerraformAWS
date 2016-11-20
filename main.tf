@@ -9,7 +9,7 @@ resource "aws_vpc" "rean-vpc" {
     cidr_block = "${var.vpc_cidr}"
     enable_dns_hostnames = true
     tags {
-        Name = "terraform-aws-vpc"
+        Name = "terraform-aws-wordpress-vpc"
     }
 }
 
@@ -17,6 +17,7 @@ resource "aws_vpc" "rean-vpc" {
 resource "aws_subnet" "public_subnet" {
   vpc_id = "${aws_vpc.rean-vpc.id}"
   cidr_block = "${var.public_subnet_cidr}"
+  availability_zone = "us-east-1a"
   tags {
     Name = "Public_Subnet"
     Owner = "Rean Cloud"
@@ -27,6 +28,7 @@ resource "aws_subnet" "public_subnet" {
 resource "aws_subnet" "private_subnet" {
   vpc_id = "${aws_vpc.rean-vpc.id}"
   cidr_block = "${var.private_subnet_cidr}"
+  availability_zone = "us-east-1a"
   tags {
     Name = "private_subnet"
     Owner = "Rean Cloud"
@@ -54,39 +56,39 @@ resource "aws_nat_gateway" "gw" {
 
 #ELB security Group
 resource "aws_security_group" "elb_sg" {
-  name = ""
-  description = ""
+  name = "Wordpress-elb-SG"
+  description = "Wordpress ELB Security Group"
   vpc_id = "${aws_vpc.rean-vpc.id}"
   ingress {
     from_port = 80
     to_port = 80
     protocol = "tcp"
-    cidr_blocks = "0.0.0.0/0"
+    cidr_blocks = [ "0.0.0.0/0" ]
   }
   egress {
     from_port = 0
     to_port = 0
     protocol = "-1"
-    cidr_blocks = "0.0.0.0/0"
+    cidr_blocks = [ "0.0.0.0/0" ]
   }
 }
 
 #EC2 Security Group
 resource "aws_security_group" "ec2_sg" {
-  name = ""
-  description = ""
+  name = "ec2-sg"
+  description = "wordpress-ec2-security group"
   vpc_id = "${aws_vpc.rean-vpc.id}"
   ingress {
     from_port = 80
     to_port = 80
     protocol = "tcp"
-    cidr_blocks = "${aws_security_group.elb_sg.id}"
+    security_groups = ["${aws_security_group.elb_sg.id}"]
   }
   egress {
     from_port = 0
     to_port = 0
     protocol = "-1"
-    cidr_blocks = "0.0.0.0/0"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 }
 
@@ -97,19 +99,19 @@ resource "aws_launch_configuration" "launch_config" {
   instance_type = "${var.instance_type}"
   iam_instance_profile = "${var.iam_profile}"
   key_name = "${var.keyname}"
-  security_groups = "${aws_security_group.ec2_sg.id}"
+  security_groups = ["${aws_security_group.ec2_sg.id}"]
   user_data = "${template_file.userdata.rendered}"
   root_block_device {
     volume_size = "${var.volume_size}"
     delete_on_termination = true
   }
-  provisioner "remote-exec" {
-    inline = [
-      "sudo mkdir -p /mnt/efs",
-      "sudo mount -t nfs4 -o nfsvers=4.1 ${aws_efs_mount_target.efs_mount.dns_name}:/ /mnt/efs",
-      "sudo su -c \"echo '${aws_efs_mount_target.efs_mount.dns_name}:/ /mnt/efs nfs defaults,vers=4.1 0 0' >> /etc/fstab\"" #create fstab entry to ensure automount on reboots
-    ]
-  }
+#  provisioner "remote-exec" {
+#    inline = [
+#      "sudo mkdir -p /mnt/efs",
+#      "sudo mount -t nfs4 -o nfsvers=4.1 ${aws_efs_mount_target.efs_mount.dns_name}:/ /mnt/efs",
+#      "sudo su -c \"echo '${aws_efs_mount_target.efs_mount.dns_name}:/ /mnt/efs nfs defaults,vers=4.1 0 0' >> /etc/fstab\""
+#    ]
+#  }
   lifecycle {
     create_before_destroy = true
   }
@@ -117,9 +119,8 @@ resource "aws_launch_configuration" "launch_config" {
 
 #creating the ELB
 resource "aws_elb" "elb" {
-  name = ""
-  availability_zones = ["us-east-1"]
-  subnets = ["${var.public_subnet_cidr}"]
+  name = "Wordpress-Loadbalancer"
+  subnets = ["${aws_subnet.public_subnet.id}"]
   listener {
     instance_port = 80
     instance_protocol = "http"
@@ -138,37 +139,36 @@ resource "aws_elb" "elb" {
 
 resource "aws_autoscaling_group" "asg" {
   name = ""
-  vpc_zone_identifier = ["${aws_subnet.public_subnet.id}"]
-  availability_zones = ["us-east-1"]
+  vpc_zone_identifier = ["${aws_subnet.private_subnet.id}"]
+  availability_zones = ["us-east-1a"]
   name = "Auto Scaling Group"
   launch_configuration = "${aws_launch_configuration.launch_config.name}"
   health_check_type = "ELB"
   min_size = 1
   max_size = 1
   desired_capacity = 1
-  load_balancers = "${aws_elb.elb.id}"
+  load_balancers = [ "${aws_elb.elb.id}" ]
   force_delete = true
   lifecycle {
     create_before_destroy = true
   }
   tag {
-    key = ""
-    value = ""
+    key = "Name"
+    value = "Wordpress ASG"
     propagate_at_launch = "true"
   }
 }
 
 resource "aws_efs_file_system" "efs" {
-  creation_token = "${var.efs_token}"
   tags {
-    Name = "${var.efs_token}"
+    Name = "Wordpress-EFS"
   }
 }
 
 resource "aws_efs_mount_target" "efs_mount" {
   file_system_id = "${aws_efs_file_system.efs.id}"
-  subnet_id = "${var.private_subnet_cidr}"
-  security_groups = ["${aws_security_group.ec2_sg.id}]"]
+  subnet_id = "${aws_subnet.private_subnet.id}"
+  security_groups = ["${aws_security_group.ec2_sg.id}"]
 }
 
 resource "template_file" "userdata" {
